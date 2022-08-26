@@ -1,7 +1,7 @@
 
 import sqlite3
 import shlex, platform
-import time, subprocess, os
+import time, subprocess, os, re
 
 SQLCMD_INSERT_COMMAND = """
 INSERT OR IGNORE INTO commands (name)
@@ -31,10 +31,18 @@ INSERT INTO execution (cmd_id, args_id, ex_date, hostname, tmux_session)
 
 """
 
+###########################################################################
+#
+# SQLite DB insertion
+#
+###########################################################################
+
 def cmd_to_name_and_args(cmd):
-    cmdparse = shlex.split(cmd)
-    cmdname = cmdparse[0]
-    args = shlex.join(cmdparse[1:])
+    try:
+        cmdname, args = cmd.split(' ', maxsplit=1)
+    except ValueError as v:
+        cmdname = cmd
+        args = ''
     return cmdname, args
 
 def get_id_cmd(cmdname, sqlcur):
@@ -53,8 +61,14 @@ def get_id_args(cmdname, sqlcur):
     return row[0]
 
 
-def add_cmd(sqlcur, cmd, host=None, timestamp=None, tmux_session=None, runtime=None):
+def add_cmd(sqlcur, cmd, host=None,
+            timestamp=None, tmux_session=None, runtime=None):
+    """
+    Add a command to the database.
+    """
     cmdname, args = cmd_to_name_and_args(cmd)
+    if cmdname == "":
+        return
     cmdid = get_id_cmd(cmdname, sqlcur)
     argid = get_id_args(args, sqlcur)
 
@@ -69,12 +83,35 @@ def add_cmd(sqlcur, cmd, host=None, timestamp=None, tmux_session=None, runtime=N
     if timestamp == None:
         timestamp = int(time.time())
     #cmd_id, args_id, ex_date, hostname, tmux_session
-    sqlcur.execute(SQLCMD_INSERT_EX, (cmdid,  argid, timestamp, host, tmux_session))
+    sqlcur.execute(SQLCMD_INSERT_EX,
+                   (cmdid,  argid, timestamp, host, tmux_session))
 
 
+###########################################################################
+#
+# Bash history parse
+#
+###########################################################################
+
+def parse_bash_history(sqlcur, fd):
+    """
+    Assumes a HISTTIMEFORMAT='%s ' time formatting
+    """
+    regex = re.compile(r'\d+\s+(\d+)\s+(.+)')
+
+    for line in fd:
+        res = regex.search(line)
+        if res:
+            timestamp = res.groups()[0]
+            cmd = res.groups()[1]
+            add_cmd(sqlcur, cmd, timestamp=timestamp)
+            
+    
 if __name__ == '__main__':
     con = sqlite3.connect('test.db')
     cur = con.cursor()
-    add_cmd(cur, 'echo hello from histdb.py')
+    #add_cmd(cur, 'echo hello from histdb.py')
+    fd = open('history.txt', 'r')
+    parse_bash_history(cur, fd)
     con.commit()
     con.close()
