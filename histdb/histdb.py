@@ -31,6 +31,13 @@ INSERT INTO execution (cmd_id, args_id, ex_date, hostname, tmux_session)
 
 """
 
+SQLCMD_SELECT_ALL_CMDS = """
+SELECT execution.id, commands.name, args.args, datetime(execution.ex_date, 'unixepoch'), execution.tmux_session
+FROM execution LEFT JOIN commands ON execution.cmd_id = commands.id
+               LEFT JOIN args ON execution.args_id = args.id
+               ORDER BY execution.ex_date ASC;
+"""
+
 ###########################################################################
 #
 # SQLite DB insertion
@@ -105,13 +112,22 @@ def parse_bash_history(sqlcur, fd):
             timestamp = res.groups()[0]
             cmd = res.groups()[1]
             add_cmd(sqlcur, cmd, timestamp=timestamp)
-            
+
+
+def populate_history(sqlcur, fname):
+    res = sqlcur.execute(SQLCMD_SELECT_ALL_CMDS)
+    rows = res.fetchall()
+    fd = open(fname, 'w')
+    for row in rows:
+        print("{} {}".format(row[1], row[2]), file=fd)
+
     
 if __name__ == '__main__':
     con = sqlite3.connect('test.db')
     cur = con.cursor()
     #add_cmd(cur, 'echo hello from histdb.py')
-    fd = open('history.txt', 'r')
-    parse_bash_history(cur, fd)
+    #fd = open('history.txt', 'r')
+    #parse_bash_history(cur, fd)
+    populate_history(cur, '/tmp/dwhist')
     con.commit()
     con.close()
